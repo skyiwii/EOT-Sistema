@@ -3,6 +3,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
+import hashlib
+from getpass import getpass
 import mysql.connector
 from mysql.connector import errorcode
 from clases.Rol import Rol
@@ -16,17 +18,17 @@ from clases.Informe import Informe
 from clases.EmpleadoDepartamento import EmpleadoDepartamento
 from clases.Administrador import Admin
 from clases.Empleado import Empleado
-
+from database.keys import credenciales
 
 def conectarBaseDeDatos():
     # Las credenciales menos la base de datos son valores predeterminados
     # Deben ir en otro archivo.py
     while True:
         try:
-            usuario = input("Ingresa usuario de la base de datos: ")
-            contraseña = input("Ingresa contraseña de la base de datos: ")
-            host = input("Ingresa host de la base de datos: ")
-            database = input("Ingresa nombre de la base de datos: ")
+            usuario = credenciales["user"]
+            contraseña = credenciales["password"]
+            host =  credenciales["host"]
+            database = credenciales["database"]
 
             cnx = mysql.connector.connect(user=usuario,
                                             password=contraseña,
@@ -185,7 +187,7 @@ def identificarse(cnx, cursor):
     while True:
         print("--- INICIE SESIÓN EN EL SISTEMA ---")
         usuario = input("Usuario: ").strip()
-        contraseña = input("Contraseña: ").strip()
+        contraseña = getpass("Contraseña: ").strip()
         
         try:
             consulta_usuario = """
@@ -222,8 +224,12 @@ def identificarse(cnx, cursor):
                     id_rol,
                     tipo_rol
                 ) = resultado
-                
-                if contraseña == contraseña_guardada:
+
+                # ---- Compatibilidad con SHA256 y texto plano ----
+                hash_ingresado = hashlib.sha256(contraseña.encode()).hexdigest()
+                contraseña_valida = (contraseña == contraseña_guardada) or (hash_ingresado == contraseña_guardada)
+
+                if contraseña_valida:
                     if tipo_rol.lower() == "admin":
                         usuario_obj = Admin(
                             Nombre=nombre,
@@ -235,9 +241,8 @@ def identificarse(cnx, cursor):
                             Contraseña=contraseña_guardada,
                             id_Direccion=id_direccion,
                             id_Rol=id_rol,
-                            id_UsuarioSistema=id_usuario  # por si el __init__ lo usa
+                            id_UsuarioSistema=id_usuario
                         )
-                        # Aseguramos el atributo aunque el __init__ lo ignore o lo nombre distinto
                         usuario_obj.id_UsuarioSistema = id_usuario
                         print(f"¡Bienvenido, {nombre}! Accediendo al menú de administrador...")
                         return usuario_obj, "admin"
@@ -252,9 +257,8 @@ def identificarse(cnx, cursor):
                             Contraseña=contraseña_guardada,
                             id_Direccion=id_direccion,
                             id_Rol=id_rol,
-                            id_UsuarioSistema=id_usuario  # por si el __init__ lo usa
+                            id_UsuarioSistema=id_usuario
                         )
-                        # Aseguramos el atributo aunque el __init__ lo ignore o lo nombre distinto
                         usuario_obj.id_UsuarioSistema = id_usuario
                         print(f"¡Bienvenido, {nombre}! Accediendo al menú de empleado...")
                         return usuario_obj, "empleado"
@@ -269,3 +273,197 @@ def identificarse(cnx, cursor):
         opcion_usuario = input("¿Desea seguir intentando? (s/n): ").lower()
         if opcion_usuario not in ("s", "si"):
             return None, None
+        
+
+
+# crear datos que se inserten que son default en el sistema para
+# iniciar sesion
+
+def crear_admin(cnx, cursor):
+    try:
+        print("\n--- Creando administrador por defecto ---")
+
+        # Roles base
+        cursor.execute("SELECT COUNT(*) FROM Rol WHERE tipo_Rol = 'admin'")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("INSERT INTO Rol (tipo_Rol) VALUES ('admin')")
+            print("Rol 'admin' creado.")
+        cursor.execute("SELECT COUNT(*) FROM Rol WHERE tipo_Rol = 'empleado'")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("INSERT INTO Rol (tipo_Rol) VALUES ('empleado')")
+            print("Rol 'empleado' creado.")
+
+        # Dirección base
+        cursor.execute("SELECT id_Direccion FROM Direccion WHERE Calle = 'Oficina Central'")
+        direccion = cursor.fetchone()
+        if direccion:
+            id_direccion = direccion[0]
+        else:
+            cursor.execute("""
+                INSERT INTO Direccion (Calle, Numero, Ciudad, Region, Pais, CodigoPostal)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, ('Oficina Central', 1, 'Santiago', 'RM', 'Chile', 8320000))
+            id_direccion = cursor.lastrowid
+            print("Dirección base creada.")
+
+        # 3Crear admin si no existe
+        cursor.execute("SELECT id_UsuarioSistema FROM UsuarioSistema WHERE NombreUsuario = 'admin'")
+        admin_existe = cursor.fetchone()
+
+        if admin_existe:
+            print("Ya existe un administrador registrado.")
+            return
+
+        # Hash seguro de la contraseña
+        contrasena_hash = hashlib.sha256("Admin123!".encode()).hexdigest()
+
+        # Obtener id del rol admin
+        cursor.execute("SELECT id_Rol FROM Rol WHERE tipo_Rol = 'admin'")
+        id_rol_admin = cursor.fetchone()[0]
+
+        # Insertar usuario administrador
+        cursor.execute("""
+            INSERT INTO UsuarioSistema 
+            (Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, Direccion_idDireccion, Rol_idRol)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, ("Administrador", "Principal", "11.111.111-1", "admin@sistema.cl", "999999999", "admin", contrasena_hash, id_direccion, id_rol_admin))
+        
+        cnx.commit()
+        print("\n¡Administrador creado exitosamente!'\n")
+
+    except Exception as e:
+        cnx.rollback()
+        print(f"Error al crear el administrador: {e}")
+
+
+import hashlib
+from datetime import datetime
+
+def crear_datos_ejemplo(cnx, cursor):
+    """
+    Carga un set mínimo de datos para que el sistema sea navegable:
+    - Roles (empleado si falta)
+    - Direcciones base
+    - Usuario empleado demo (hash SHA-256)
+    - Departamentos (con TipoDepartamento NOT NULL)
+    - Proyecto demo
+    - Asignaciones y detalle
+    """
+    try:
+        print("--- Insertando datos de ejemplo ---")
+
+        # 1) Roles
+        cursor.execute("SELECT id_Rol FROM Rol WHERE tipo_Rol='empleado'")
+        row = cursor.fetchone()
+        if row:
+            id_rol_emp = row[0]
+        else:
+            cursor.execute("INSERT INTO Rol (tipo_Rol) VALUES ('empleado')")
+            id_rol_emp = cursor.lastrowid
+
+        # 2) Direcciones
+        direcciones_seed = [
+            ("Av. Principal", 100, "Copiapó", "Atacama", "Chile", 1530000),
+            ("Calle Secundaria", 55, "Copiapó", "Atacama", "Chile", 1530001),
+        ]
+        ids_dir = []
+        for d in direcciones_seed:
+            cursor.execute("""
+                INSERT INTO Direccion (Calle, Numero, Ciudad, Region, Pais, CodigoPostal)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, d)
+            ids_dir.append(cursor.lastrowid)
+        print("Direcciones de ejemplo creadas o existentes.")
+
+        # 3) Usuario empleado DEMO (si no existe)
+        cursor.execute("SELECT id_UsuarioSistema FROM UsuarioSistema WHERE NombreUsuario=%s", ("empleado1",))
+        row = cursor.fetchone()
+        if row:
+            id_emp = row[0]
+        else:
+            pwd_hash = hashlib.sha256("Empleado123!".encode()).hexdigest()
+            cursor.execute("""
+                INSERT INTO UsuarioSistema
+                    (Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, Direccion_idDireccion, Rol_idRol)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("María", "Pérez", "13.456.789-K", "maria.perez@sistema.cl", "+56922222222",
+                  "empleado1", pwd_hash, ids_dir[0], id_rol_emp))
+            id_emp = cursor.lastrowid
+
+            # DetalleEmpleado
+            cursor.execute("""
+                INSERT INTO DetalleEmpleado (Salario, TipoEmpleado, UsuarioSistema_idUsuarioSistema)
+                VALUES (%s, %s, %s)
+            """, (900000, "Analista", id_emp))
+
+        # 4) Departamentos
+        departamentos_seed = [
+            ("Operaciones",   "Operativo",  "Coordina operaciones internas", ids_dir[1]),
+            ("TI",            "Soporte",    "Soporte y desarrollo sistemas", ids_dir[0]),
+        ]
+        id_departamento_principal = None
+        for (nom, tipo, desc, id_dir) in departamentos_seed:
+            cursor.execute("SELECT id_Departamento FROM Departamento WHERE NombreDepartamento=%s", (nom,))
+            dep = cursor.fetchone()
+            if dep:
+                dep_id = dep[0]
+            else:
+                cursor.execute("""
+                    INSERT INTO Departamento (NombreDepartamento, TipoDepartamento, DescripcionDepartamento, Direccion_idDireccion)
+                    VALUES (%s, %s, %s, %s)
+                """, (nom, tipo, desc, id_dir))  # TipoDepartamento seteado correctamente
+                dep_id = cursor.lastrowid
+            if id_departamento_principal is None:
+                id_departamento_principal = dep_id
+
+        # 5) Asignación empleado a depto (EmpleadoDepartamento)
+        cursor.execute("""
+            SELECT id_EmpleadoDepartamento
+            FROM EmpleadoDepartamento
+            WHERE UsuarioSistema_idUsuarioSistema=%s AND Departamento_idDepartamento=%s
+        """, (id_emp, id_departamento_principal))
+        ed = cursor.fetchone()
+        if ed:
+            id_ed = ed[0]
+        else:
+            cursor.execute("""
+                INSERT INTO EmpleadoDepartamento (Departamento_idDepartamento, UsuarioSistema_idUsuarioSistema)
+                VALUES (%s, %s)
+            """, (id_departamento_principal, id_emp))
+            id_ed = cursor.lastrowid
+
+        # 6) Proyecto demo
+        cursor.execute("SELECT id_Proyecto FROM Proyecto WHERE NombreProyecto=%s", ("Onboarding",))
+        pr = cursor.fetchone()
+        if pr:
+            id_proy = pr[0]
+        else:
+            cursor.execute("""
+                INSERT INTO Proyecto (DescripcionProyecto, NombreProyecto)
+                VALUES (%s, %s)
+            """, ("Proyecto de inducción y pruebas", "Onboarding"))
+            id_proy = cursor.lastrowid
+
+        # 7) EmpleadoProyecto
+        cursor.execute("""
+            SELECT id_DetalleProyecto FROM EmpleadoProyecto
+            WHERE EmpleadoDepartamento_idEmpleadoDepartamento=%s AND Proyecto_idProyecto=%s
+        """, (id_ed, id_proy))
+        ep = cursor.fetchone()
+        if not ep:
+            cursor.execute("""
+                INSERT INTO EmpleadoProyecto
+                    (CantidadHorasEmpleadoProyecto, DescripcionTareaProyecto, EmpleadoDepartamento_idEmpleadoDepartamento, Proyecto_idProyecto)
+                VALUES (%s, %s, %s, %s)
+            """, (20, "Configuración inicial y documentación", id_ed, id_proy))
+
+        cnx.commit()
+        print("Datos de ejemplo cargados correctamente.")
+
+    except Exception as e:
+        try: cnx.rollback()
+        except: pass
+        print(f"Error al crear los datos de ejemplo: {e}")
+
+
+

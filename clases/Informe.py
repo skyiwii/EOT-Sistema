@@ -16,10 +16,10 @@
 class Informe: 
     columnas = {
         "id_Informe": "INT NOT NULL AUTO_INCREMENT PRIMARY KEY",
-        "NombreInforme": "VARCHAR(35) NOT NULL",
+        "NombreInforme": "VARCHAR(100) NOT NULL",
         "FechaConsulta": "datetime NOT NULL DEFAULT CURRENT_TIMESTAMP",
         "DescripcionInforme":"LONGTEXT NULL",
-        "TipoInforme": "VARCHAR(30) DEFAULT 'No especificado'",
+        "TipoInforme": "VARCHAR(45) DEFAULT 'No especificado'",
         "EmpleadoProyecto_idDetalleProyecto": "INT NOT NULL"
     }
 

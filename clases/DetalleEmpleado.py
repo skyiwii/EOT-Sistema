@@ -25,7 +25,7 @@ class DetalleEmpleado:
          "FOREIGN KEY (UsuarioSistema_idUsuarioSistema) REFERENCES UsuarioSistema(id_UsuarioSistema) ON DELETE CASCADE"
     ]
     
-    def __init__(self, FechaContrato, Salario, TipoEmpleado, id_Departamento, id_UsuarioSistema):
+    def __init__(self, FechaContrato, Salario, TipoEmpleado, id_UsuarioSistema):
         self.FechaContrato = FechaContrato
         self.Salario = Salario
         self.TipoEmpleado = TipoEmpleado

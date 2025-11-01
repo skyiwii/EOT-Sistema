@@ -1,4 +1,6 @@
 from clases.UsuarioSistema import UsuarioSistema
+from utils import pedir_input, validar_email, validar_contrasena, validar_telefono, pedir_contrasena
+import hashlib
 
 
 class Empleado(UsuarioSistema):
@@ -6,6 +8,10 @@ class Empleado(UsuarioSistema):
         super().__init__(Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol, id_UsuarioSistema)
 
     def ver_datos_personales(self, cursor):
+        """
+        Muestra datos personales y dirección. No rompe tu flujo de impresión.
+        Maneja valores None de dirección para evitar 'None' en pantalla.
+        """
         try:
             cursor.execute("""
                 SELECT 
@@ -15,29 +21,45 @@ class Empleado(UsuarioSistema):
                 LEFT JOIN Direccion D ON U.Direccion_idDireccion = D.id_Direccion
                 WHERE U.id_UsuarioSistema = %s
             """, (self.id_UsuarioSistema,))
-            usuario = cursor.fetchone()
+            u = cursor.fetchone()
 
-            if not usuario:
+            if not u:
                 print("Error: No se encontraron datos del usuario actual.")
                 return
 
+            # Desempaquetado con defaults seguros para dirección
+            (nombre, apellido, rut, email, telefono, nombre_usuario,
+             calle, numero, ciudad, region, pais, cp) = u
+
+            calle  = calle  if calle  is not None else "(sin calle)"
+            numero = numero if numero is not None else "-"
+            ciudad = ciudad if ciudad is not None else "(sin ciudad)"
+            region = region if region is not None else "(sin región)"
+            pais   = pais   if pais   is not None else "(sin país)"
+            cp     = cp     if cp     is not None else "(sin CP)"
+            tel_mostrar = telefono if telefono else "(No registrado)"
+
             print("\n========== DATOS PERSONALES ==========")
-            print(f"Nombre completo:    {usuario[0]} {usuario[1]}")
-            print(f"RUT:                {usuario[2]}")
-            print(f"Email:              {usuario[3]}")
-            print(f"Teléfono:           {usuario[4] if usuario[4] else '(No registrado)'}")
-            print(f"Nombre de usuario:  {usuario[5]}")
+            print(f"Nombre completo:    {nombre} {apellido}")
+            print(f"RUT:                {rut}")
+            print(f"Email:              {email}")
+            print(f"Teléfono:           {tel_mostrar}")
+            print(f"Nombre de usuario:  {nombre_usuario}")
             print("\n--- Dirección ---")
-            print(f"Calle:              {usuario[6]} {usuario[7]}")
-            print(f"Ciudad/Región:      {usuario[8]}, {usuario[9]}")
-            print(f"País:               {usuario[10]}")
-            print(f"Código Postal:      {usuario[11]}")
+            print(f"Calle:              {calle} {numero}")
+            print(f"Ciudad/Región:      {ciudad}, {region}")
+            print(f"País:               {pais}")
+            print(f"Código Postal:      {cp}")
             print("======================================\n")
 
         except Exception as e:
             print(f"Ocurrió un error al obtener los datos personales: {e}")
 
     def ver_detalle_laboral(self, cursor):
+        """
+        Muestra el último estado laboral (según FechaAsignacion más reciente).
+        Mantiene tu formato, pero evita crashear si algo viene None.
+        """
         try:
             cursor.execute("""
                 SELECT 
@@ -59,13 +81,19 @@ class Empleado(UsuarioSistema):
                 print("\nNo tienes historial laboral registrado.\n")
                 return
 
-            salario_fmt = f"{detalle[1]:,}".replace(",", ".")
+            fecha_contrato = detalle[0] if detalle[0] is not None else "(sin fecha)"
+            salario_val = detalle[1] if detalle[1] is not None else 0
+            tipo_emp = detalle[2] if detalle[2] else "No especificado"
+            depto = detalle[3] if detalle[3] else "(sin departamento)"
+            estado = detalle[4] if detalle[4] else "(desconocido)"
+
+            salario_fmt = f"{salario_val:,}".replace(",", ".")
             print("\n===== DETALLE LABORAL =====")
-            print(f"Estado:              {detalle[4]}")
-            print(f"Departamento actual: {detalle[3]}")
-            print(f"Cargo / Tipo:        {detalle[2]}")
+            print(f"Estado:              {estado}")
+            print(f"Departamento actual: {depto}")
+            print(f"Cargo / Tipo:        {tipo_emp}")
             print(f"Salario:             ${salario_fmt}")
-            print(f"Fecha de Contrato:   {detalle[0]}")
+            print(f"Fecha de Contrato:   {fecha_contrato}")
             print("============================\n")
 
         except Exception as e:
@@ -94,11 +122,15 @@ class Empleado(UsuarioSistema):
 
             print("\n========== PROYECTOS ACTIVOS ==========")
             for p in proyectos:
+                nombre = p[0] if p[0] else "(Sin nombre)"
+                fecha = p[1] if p[1] else "(Sin fecha)"
+                horas = p[2] if p[2] is not None else 0
+                tarea = p[3] if p[3] else "(Sin descripción)"
                 print(f"""
-        Proyecto:          {p[0]}
-        Fecha Inscripción: {p[1]}
-        Horas asignadas:   {p[2]}
-        Tarea:             {p[3] if p[3] else '(Sin descripción)'}
+        Proyecto:          {nombre}
+        Fecha Inscripción: {fecha}
+        Horas asignadas:   {horas}
+        Tarea:             {tarea}
         ----------------------------------""")
             print("======================================\n")
 
@@ -128,12 +160,17 @@ class Empleado(UsuarioSistema):
 
             print("\n========== HISTORIAL DE PROYECTOS ==========")
             for p in proyectos:
+                nombre = p[0] if p[0] else "(Sin nombre)"
+                fecha = p[1] if p[1] else "(Sin fecha)"
+                horas = p[2] if p[2] is not None else 0
+                tarea = p[3] if p[3] else "(Sin descripción)"
+                estado = p[4] if p[4] else "(Desconocido)"
                 print(f"""
-        Proyecto:          {p[0]}
-        Fecha Inscripción: {p[1]}
-        Horas asignadas:   {p[2]}
-        Tarea:             {p[3] if p[3] else '(Sin descripción)'}
-        Estado:            {p[4]}
+        Proyecto:          {nombre}
+        Fecha Inscripción: {fecha}
+        Horas asignadas:   {horas}
+        Tarea:             {tarea}
+        Estado:            {estado}
         ----------------------------------""")
             print("===========================================\n")
 
@@ -143,8 +180,7 @@ class Empleado(UsuarioSistema):
     def editar_datos_personales(self, cnx, cursor):
         try:
             print("\n--- EDITAR DATOS PERSONALES ---")
-            print("Ingrese los nuevos datos o presione ENTER para mantener el valor actual.")
-            print("Ingrese 0 en cualquier momento para cancelar la operación.\n")
+            print("Presione ENTER para mantener el valor actual o 0 para cancelar.\n")
 
             cursor.execute("""
                 SELECT 
@@ -160,52 +196,89 @@ class Empleado(UsuarioSistema):
                 print("Error: No se pudo cargar la información actual.")
                 return
 
-            nombre = input(f"Nombre [{usuario[0]}]: ").strip()
-            if nombre == "0": return
+            # --- DATOS PERSONALES ---
+            nombre = pedir_input(f"Nombre [{usuario[0]}]: ", cnx, opcional=True)
+            if nombre is None: return
             nombre = nombre or usuario[0]
 
-            apellido = input(f"Apellido [{usuario[1]}]: ").strip()
-            if apellido == "0": return
+            apellido = pedir_input(f"Apellido [{usuario[1]}]: ", cnx, opcional=True)
+            if apellido is None: return
             apellido = apellido or usuario[1]
 
-            email = input(f"Email [{usuario[2]}]: ").strip()
-            if email == "0": return
-            email = email or usuario[2]
+            while True:
+                email = pedir_input(f"Email [{usuario[2]}]: ", cnx, opcional=True)
+                if email is None: 
+                    return
+                if not email:
+                    email = usuario[2]
+                    break
+                if validar_email(email):
+                    break
+                print("Email inválido. Reintente.")
 
-            telefono = input(f"Teléfono [{usuario[3] if usuario[3] else '(vacío)'}]: ").strip()
-            if telefono == "0": return
-            telefono = telefono or usuario[3]
+            while True:
+                telefono = pedir_input(f"Teléfono [{usuario[3] if usuario[3] else '(vacío)'}]: ", cnx, opcional=True)
+                if telefono is None: 
+                    return
+                if not telefono:
+                    telefono = usuario[3]
+                    break
+                if validar_telefono(telefono):
+                    break
+                print("Teléfono inválido. Reintente.")
 
+            # --- DIRECCIÓN ---
             print("\n--- EDITAR DIRECCIÓN ---")
-            calle = input(f"Calle [{usuario[5]}]: ").strip()
-            if calle == "0": return
+
+            calle = pedir_input(f"Calle [{usuario[5] if usuario[5] else '(vacía)'}]: ", cnx, opcional=True)
+            if calle is None: return
             calle = calle or usuario[5]
 
-            numero = input(f"Número [{usuario[6]}]: ").strip()
-            if numero == "0": return
-            numero = int(numero) if numero else usuario[6]
+            while True:
+                numero = pedir_input(f"Número [{usuario[6] if usuario[6] else '(sin número)'}]: ", cnx, opcional=True)
+                if numero is None: return
+                if not numero:
+                    numero = usuario[6]
+                    break
+                try:
+                    numero = int(numero)
+                    break
+                except ValueError:
+                    print("Número inválido. Debe ser un número entero.")
 
-            ciudad = input(f"Ciudad [{usuario[7]}]: ").strip()
-            if ciudad == "0": return
+            ciudad = pedir_input(f"Ciudad [{usuario[7] if usuario[7] else '(vacía)'}]: ", cnx, opcional=True)
+            if ciudad is None: return
             ciudad = ciudad or usuario[7]
 
-            region = input(f"Región [{usuario[8]}]: ").strip()
-            if region == "0": return
+            region = pedir_input(f"Región [{usuario[8] if usuario[8] else '(vacía)'}]: ", cnx, opcional=True)
+            if region is None: return
             region = region or usuario[8]
 
-            pais = input(f"País [{usuario[9]}]: ").strip()
-            if pais == "0": return
+            pais = pedir_input(f"País [{usuario[9] if usuario[9] else '(vacío)'}]: ", cnx, opcional=True)
+            if pais is None: return
             pais = pais or usuario[9]
 
-            codigo_postal = input(f"Código Postal [{usuario[10]}]: ").strip()
-            if codigo_postal == "0": return
-            codigo_postal = int(codigo_postal) if codigo_postal else usuario[10]
+            while True:
+                codigo_postal = pedir_input(f"Código Postal [{usuario[10] if usuario[10] else '(vacío)'}]: ", cnx, opcional=True)
+                if codigo_postal is None: return
+                if not codigo_postal:
+                    codigo_postal = usuario[10]
+                    break
+                try:
+                    codigo_postal = int(codigo_postal)
+                    if codigo_postal < 0 or codigo_postal > 99999999:
+                        print("Código postal fuera de rango válido.")
+                        continue
+                    break
+                except ValueError:
+                    print("Código postal inválido. Debe ser un número entero.")
 
-            confirmar = input("\n¿Desea guardar los cambios? (s/n): ").strip().lower()
-            if confirmar != "s":
+            confirmar = pedir_input("¿Desea guardar los cambios? (s/n): ", cnx, opcional=True)
+            if confirmar is None or confirmar.lower() not in  ("s", "si"):
                 print("Cambios cancelados.")
                 return
 
+            # --- ACTUALIZACIÓN ---
             cursor.execute("""
                 UPDATE UsuarioSistema
                 SET Nombre = %s, Apellido = %s, Email = %s, Telefono = %s
@@ -228,44 +301,164 @@ class Empleado(UsuarioSistema):
                 pass
             print(f"Ocurrió un error al editar tus datos: {e}")
 
-    def ver_compañeros(self, cursor):
+    def cambiar_nombre_usuario(self, cnx, cursor):
         try:
-            cursor.execute("""
-                SELECT D.id_Departamento, D.NombreDepartamento
-                FROM EmpleadoDepartamento ED
-                JOIN Departamento D ON ED.Departamento_idDepartamento = D.id_Departamento
-                WHERE ED.UsuarioSistema_idUsuarioSistema = %s
-                  AND ED.Activo = TRUE
-                ORDER BY D.NombreDepartamento
-            """, (self.id_UsuarioSistema,))
-            departamentos = cursor.fetchall()
-
-            if not departamentos:
-                print("\nNo estás actualmente asignado a ningún departamento activo.\n")
+            print("\n--- CAMBIAR NOMBRE DE USUARIO ---")
+            nuevo_usuario = pedir_input("Nuevo nombre de usuario [0 para cancelar]: ", cnx)
+            if nuevo_usuario is None:
                 return
 
-            for dep_id, dep_nombre in departamentos:
-                cursor.execute("""
-                    SELECT U.Nombre, U.Apellido, U.NombreUsuario, DE.TipoEmpleado
-                    FROM EmpleadoDepartamento ED
-                    JOIN UsuarioSistema U ON ED.UsuarioSistema_idUsuarioSistema = U.id_UsuarioSistema
-                    LEFT JOIN DetalleEmpleado DE ON U.id_UsuarioSistema = DE.UsuarioSistema_idUsuarioSistema
-                    WHERE ED.Departamento_idDepartamento = %s
-                      AND ED.Activo = TRUE
-                      AND U.id_UsuarioSistema <> %s
-                    ORDER BY U.Nombre, U.Apellido
-                """, (dep_id, self.id_UsuarioSistema))
-                companeros = cursor.fetchall()
+            if len(nuevo_usuario.strip()) == 0:
+                print("El nombre de usuario no puede estar vacío.")
+                return
+            if len(nuevo_usuario) > 20:
+                print("El nombre de usuario no puede superar los 20 caracteres.")
+                return
 
-                print(f"\n=== Compañeros en {dep_nombre} ===")
-                if not companeros:
-                    print("No hay otros compañeros activos en este departamento.")
-                else:
-                    for c in companeros:
-                        tipo = c[3] if c[3] else "No especificado"
-                        print(f"- {c[0]} {c[1]}  |  usuario: {c[2]}  |  tipo: {tipo}")
-            print()
+            # Verificar que no exista otro usuario con el mismo nombre
+            cursor.execute("SELECT COUNT(*) FROM UsuarioSistema WHERE NombreUsuario = %s", (nuevo_usuario,))
+            if cursor.fetchone()[0] > 0:
+                print("Ese nombre de usuario ya está en uso. Elija otro.")
+                return
+
+            confirmar = pedir_input(f"¿Confirma cambiar su nombre de usuario a '{nuevo_usuario}'? (s/n): ", cnx, opcional=True)
+            if confirmar is None or confirmar.lower() not in ("s", "si"):
+                print("Operación cancelada.")
+                return
+
+            cursor.execute("""
+                UPDATE UsuarioSistema
+                SET NombreUsuario = %s
+                WHERE id_UsuarioSistema = %s
+            """, (nuevo_usuario, self.id_UsuarioSistema))
+            cnx.commit()
+            print(f"\nNombre de usuario actualizado correctamente a '{nuevo_usuario}'.\n")
 
         except Exception as e:
-            print(f"Ocurrió un error al consultar tus compañeros: {e}")
+            try:
+                cnx.rollback()
+            except Exception:
+                pass
+            print(f"Ocurrió un error al cambiar el nombre de usuario: {e}")
+
+    def cambiar_contrasena(self, cnx, cursor):
+        try:
+            print("\n--- CAMBIAR CONTRASEÑA ---")
+            print("Debe ingresar su contraseña actual para continuar.\n")
+
+            contrasena_actual = pedir_contrasena("Contraseña actual [0 para cancelar]: ", cnx)
+            if contrasena_actual is None:
+                return
+
+            # Verificar la contraseña actual (ya hasheada en BD)
+            cursor.execute("""
+                SELECT Contraseña FROM UsuarioSistema WHERE id_UsuarioSistema = %s
+            """, (self.id_UsuarioSistema,))
+            registro = cursor.fetchone()
+            if not registro:
+                print("Error al obtener la contraseña actual.")
+                return
+
+            hash_actual = hashlib.sha256(contrasena_actual.encode()).hexdigest()
+            if hash_actual != registro[0]:
+                print("Contraseña actual incorrecta.")
+                return
+
+            # Nueva contraseña
+            while True:
+                nueva = pedir_contrasena("Nueva contraseña [0 para cancelar]: ", cnx)
+                if nueva is None:
+                    return
+                if not validar_contrasena(nueva):
+                    print("La contraseña debe tener mínimo 8 caracteres, una mayúscula, un número y un símbolo.")
+                    continue
+
+                repetir = pedir_contrasena("Repita la nueva contraseña: ", cnx)
+                if repetir is None:
+                    return
+                if nueva != repetir:
+                    print("Las contraseñas no coinciden. Intente de nuevo.")
+                    continue
+                break
+
+            nueva_hash = hashlib.sha256(nueva.encode()).hexdigest()
+
+            cursor.execute("""
+                UPDATE UsuarioSistema
+                SET Contraseña = %s
+                WHERE id_UsuarioSistema = %s
+            """, (nueva_hash, self.id_UsuarioSistema))
+            cnx.commit()
+            print("\nContraseña actualizada correctamente.\n")
+
+        except Exception as e:
+            try:
+                cnx.rollback()
+            except Exception:
+                pass
+            print(f"Ocurrió un error al cambiar la contraseña: {e}")
+
+
+    def ver_compañeros(self, cursor):
+        """
+        Muestra los compañeros de departamento (excepto el propio empleado).
+        Si no pertenece a ningún departamento, informa adecuadamente.
+        """
+        try:
+            # Primero obtenemos su departamento activo
+            cursor.execute("""
+                SELECT Departamento_idDepartamento
+                FROM EmpleadoDepartamento
+                WHERE UsuarioSistema_idUsuarioSistema = %s
+                  AND Activo = TRUE
+                LIMIT 1
+            """, (self.id_UsuarioSistema,))
+            dep = cursor.fetchone()
+
+            if not dep:
+                print("\nNo estás asignado actualmente a ningún departamento.")
+                return
+
+            id_dep = dep[0]
+
+            # Luego listamos compañeros del mismo departamento
+            cursor.execute("""
+                SELECT 
+                    U.Nombre, U.Apellido, U.Email, U.Telefono, DE.TipoEmpleado
+                FROM EmpleadoDepartamento ED
+                JOIN UsuarioSistema U ON ED.UsuarioSistema_idUsuarioSistema = U.id_UsuarioSistema
+                JOIN DetalleEmpleado DE ON U.id_UsuarioSistema = DE.UsuarioSistema_idUsuarioSistema
+                WHERE ED.Departamento_idDepartamento = %s
+                  AND ED.Activo = TRUE
+                  AND U.id_UsuarioSistema <> %s
+                ORDER BY U.Apellido, U.Nombre
+            """, (id_dep, self.id_UsuarioSistema))
+            compañeros = cursor.fetchall()
+
+            if not compañeros:
+                print("\nNo tienes compañeros actualmente en tu departamento.\n")
+                return
+
+            print("\n===== COMPAÑEROS DE DEPARTAMENTO =====")
+            for c in compañeros:
+                nombre = c[0] if c[0] else "(sin nombre)"
+                apellido = c[1] if c[1] else ""
+                email = c[2] if c[2] else "(sin email)"
+                telefono = c[3] if c[3] else "(sin teléfono)"
+                tipo = c[4] if c[4] else "(sin cargo)"
+                print(f"""
+        {nombre} {apellido}
+        Cargo: {tipo}
+        Email: {email}
+        Teléfono: {telefono}
+        ----------------------------------""")
+            print("=======================================\n")
+
+        except Exception as e:
+            print(f"Ocurrió un error al listar tus compañeros: {e}")
+
+
+
+
+
 
