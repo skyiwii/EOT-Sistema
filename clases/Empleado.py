@@ -5,7 +5,7 @@ import hashlib
 
 class Empleado(UsuarioSistema):
     def __init__(self, Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol, id_UsuarioSistema=None):
-        super().__init__(Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol, id_UsuarioSistema)
+        super().__init__(id_UsuarioSistema, Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol)
 
     def ver_datos_personales(self, cursor):
         """
@@ -458,7 +458,50 @@ class Empleado(UsuarioSistema):
             print(f"Ocurrió un error al listar tus compañeros: {e}")
 
 
+    # Nueva función/método
 
+    def ver_datos_personales_gui(self, cursor):
+        # Igual que ver_datos_personales() pero retornando texto en lugar de imprimir
+        try:
+            cursor.execute("""
+                SELECT 
+                    U.Nombre, U.Apellido, U.RUT, U.Email, U.Telefono, U.NombreUsuario,
+                    D.Calle, D.Numero, D.Ciudad, D.Region, D.Pais, D.CodigoPostal
+                FROM UsuarioSistema U
+                LEFT JOIN Direccion D ON U.Direccion_idDireccion = D.id_Direccion
+                WHERE U.id_UsuarioSistema = %s
+            """, (self.id_UsuarioSistema,))
+            u = cursor.fetchone()
+
+            if not u:
+                return "⚠ No se encontraron datos personales."
+
+            (nombre, apellido, rut, email, telefono, nombre_usuario,
+            calle, numero, ciudad, region, pais, cp) = u
+
+            texto = f"""
+    ======== DATOS PERSONALES ========
+
+    Nombre: {nombre} {apellido}
+    RUT: {rut}
+    Email: {email}
+    Teléfono: {telefono}
+
+    Usuario: {nombre_usuario}
+
+    --- Dirección ---
+    Calle: {calle} {numero}
+    Ciudad: {ciudad}
+    Región: {region}
+    País: {pais}
+    Código Postal: {cp}
+
+    ================================
+    """
+            return texto
+
+        except Exception as e:
+            return f"Error: {e}"
 
 
 

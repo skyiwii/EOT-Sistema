@@ -4,6 +4,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import hashlib
+from datetime import datetime
 from getpass import getpass
 import mysql.connector
 from mysql.connector import errorcode
@@ -19,6 +20,8 @@ from clases.EmpleadoDepartamento import EmpleadoDepartamento
 from clases.Administrador import Admin
 from clases.Empleado import Empleado
 from database.keys import credenciales
+from clases.IndicadorEconomico import IndicadorEconomico     
+from clases.ConsultaEconomica import ConsultaEconomica        
 
 def conectarBaseDeDatos():
     # Las credenciales menos la base de datos son valores predeterminados
@@ -100,7 +103,9 @@ def crearTablas(cursor):
         EmpleadoDepartamento,
         Proyecto, 
         EmpleadoProyecto, 
-        Informe
+        Informe,
+        IndicadorEconomico,     
+        ConsultaEconomica        
     ]
 
     for tabla_clase in tablas:
@@ -142,17 +147,18 @@ def cerrarConexion(cnx, cursor):
 
 def limpiarBaseDeDatos(cursor, cnx):
     tablas = [
+        "ConsultaEconomica",        
         "Informe",
         "EmpleadoProyecto",
         "EmpleadoDepartamento",
-        "DetalleEmpleado",
         "Proyecto",
         "Departamento",
+        "DetalleEmpleado",
         "UsuarioSistema",
+        "IndicadorEconomico",        
         "Direccion",
         "Rol"
     ]
-    
     try:
         print("Limpiando base de datos...")
         
@@ -274,6 +280,90 @@ def identificarse(cnx, cursor):
         if opcion_usuario not in ("s", "si"):
             return None, None
         
+# Tkinter
+
+def autenticar_usuario(nombre_usuario, contraseña_plana, cursor):
+    """
+    Autentica a un usuario SIN usar input() ni print().
+    Devuelve (objeto_usuario, rol) si las credenciales son correctas,
+    o (None, None) si son inválidas.
+    """
+    consulta_usuario = """
+        SELECT
+            U.id_UsuarioSistema,
+            U.Nombre,
+            U.Apellido,
+            U.RUT,
+            U.Email,
+            U.Telefono,
+            U.NombreUsuario,
+            U.Contraseña,
+            U.Direccion_idDireccion,
+            U.Rol_idRol,
+            R.tipo_Rol
+        FROM UsuarioSistema U
+        JOIN Rol R ON U.Rol_idRol = R.id_Rol
+        WHERE U.NombreUsuario = %s
+    """
+    cursor.execute(consulta_usuario, (nombre_usuario,))
+    resultado = cursor.fetchone()
+
+    if not resultado:
+        # Usuario no existe
+        return None, None
+
+    (
+        id_usuario,
+        nombre,
+        apellido,
+        rut,
+        email,
+        telefono,
+        nombre_usuario_db,
+        contraseña_guardada,
+        id_direccion,
+        id_rol,
+        tipo_rol
+    ) = resultado
+
+    # Mismo criterio que en identificarse: texto plano o SHA256
+    hash_ingresado = hashlib.sha256(contraseña_plana.encode()).hexdigest()
+    contraseña_valida = (contraseña_plana == contraseña_guardada) or (hash_ingresado == contraseña_guardada)
+
+    if not contraseña_valida:
+        return None, None
+
+    # Instanciar Admin o Empleado igual que en identificarse, pero sin prints
+    if tipo_rol.lower() == "admin":
+        usuario_obj = Admin(
+            Nombre=nombre,
+            Apellido=apellido,
+            RUT=rut,
+            Email=email,
+            Telefono=telefono,
+            NombreUsuario=nombre_usuario_db,
+            Contraseña=contraseña_guardada,
+            id_Direccion=id_direccion,
+            id_Rol=id_rol,
+            id_UsuarioSistema=id_usuario
+        )
+        usuario_obj.id_UsuarioSistema = id_usuario
+        return usuario_obj, "admin"
+    else:
+        usuario_obj = Empleado(
+            Nombre=nombre,
+            Apellido=apellido,
+            RUT=rut,
+            Email=email,
+            Telefono=telefono,
+            NombreUsuario=nombre_usuario_db,
+            Contraseña=contraseña_guardada,
+            id_Direccion=id_direccion,
+            id_Rol=id_rol,
+            id_UsuarioSistema=id_usuario
+        )
+        usuario_obj.id_UsuarioSistema = id_usuario
+        return usuario_obj, "empleado"
 
 
 # crear datos que se inserten que son default en el sistema para
@@ -335,22 +425,68 @@ def crear_admin(cnx, cursor):
         cnx.rollback()
         print(f"Error al crear el administrador: {e}")
 
-
-import hashlib
-from datetime import datetime
-
 def crear_datos_ejemplo(cnx, cursor):
     """
     Carga un set mínimo de datos para que el sistema sea navegable:
+    - Indicadores económicos base (UF, USD, USD_INTERCAMBIO, EUR, UTM, IPC, IPSA)
     - Roles (empleado si falta)
     - Direcciones base
     - Usuario empleado demo (hash SHA-256)
-    - Departamentos (con TipoDepartamento NOT NULL)
+    - Departamentos
     - Proyecto demo
     - Asignaciones y detalle
     """
     try:
         print("--- Insertando datos de ejemplo ---")
+
+        # 0) Indicadores económicos base
+        #    (se insertan solo si NO existen para ese CodigoIndicador)
+        indicadores_seed = [
+            ("USD_CLP",             "Dólar observado",                         "USD",  "CLP",
+             "Tipo de cambio dólar estadounidense / peso chileno"),
+
+            ("USD_INTERCAMBIO_CLP", "Dólar acuerdo (intercambio)",            "USD",  "CLP",
+             "Dólar acuerdo publicado por Banco Central / intercambio"),
+
+            ("EUR_CLP",             "Euro",                                   "EUR",  "CLP",
+             "Tipo de cambio euro / peso chileno"),
+
+            ("UF_CLP",              "Unidad de Fomento (UF)",                 "UF",   "CLP",
+             "Unidad de cuenta chilena indexada a la inflación"),
+
+            ("UTM_CLP",             "Unidad Tributaria Mensual (UTM)",        "UTM",  "CLP",
+             "Unidad tributaria mensual utilizada por el SII"),
+
+            ("IPC",                 "Índice de Precios al Consumidor (IPC)",  "%",    "N/A",
+             "Variación porcentual del IPC"),
+
+            ("IVP",                 "Índice de Valor Promedio (IVP)",         "IVP",  "CLP",
+             "Índice de valor promedio de instrumentos reajustables"),
+
+            ("IPSA",                "IPSA (Índice de Precios Selectivo de Acciones)", "Puntos", "N/A",
+             "Índice bursátil IPSA de la Bolsa de Santiago"),
+        ]
+
+
+        for cod, nom, base, cot, desc in indicadores_seed:
+            cursor.execute(
+                "SELECT id_IndicadorEconomico FROM IndicadorEconomico WHERE CodigoIndicador = %s",
+                (cod,)
+            )
+            existe = cursor.fetchone()
+            if existe:
+                continue  # ya está en BD, no lo duplicamos
+
+            cursor.execute(
+                """
+                INSERT INTO IndicadorEconomico
+                    (CodigoIndicador, NombreIndicador, MonedaBase, MonedaCotizada, DescripcionIndicador)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (cod, nom, base, cot, desc)
+            )
+
+        print("Indicadores económicos base verificados/creados.")
 
         # 1) Roles
         cursor.execute("SELECT id_Rol FROM Rol WHERE tipo_Rol='empleado'")
@@ -376,7 +512,10 @@ def crear_datos_ejemplo(cnx, cursor):
         print("Direcciones de ejemplo creadas o existentes.")
 
         # 3) Usuario empleado DEMO (si no existe)
-        cursor.execute("SELECT id_UsuarioSistema FROM UsuarioSistema WHERE NombreUsuario=%s", ("empleado1",))
+        cursor.execute(
+            "SELECT id_UsuarioSistema FROM UsuarioSistema WHERE NombreUsuario=%s",
+            ("empleado1",)
+        )
         row = cursor.fetchone()
         if row:
             id_emp = row[0]
@@ -384,10 +523,11 @@ def crear_datos_ejemplo(cnx, cursor):
             pwd_hash = hashlib.sha256("Empleado123!".encode()).hexdigest()
             cursor.execute("""
                 INSERT INTO UsuarioSistema
-                    (Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, Direccion_idDireccion, Rol_idRol)
+                    (Nombre, Apellido, RUT, Email, Telefono, NombreUsuario,
+                     Contraseña, Direccion_idDireccion, Rol_idRol)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, ("María", "Pérez", "13.456.789-K", "maria.perez@sistema.cl", "+56922222222",
-                  "empleado1", pwd_hash, ids_dir[0], id_rol_emp))
+            """, ("María", "Pérez", "13.456.789-K", "maria.perez@sistema.cl",
+                  "+56922222222", "empleado1", pwd_hash, ids_dir[0], id_rol_emp))
             id_emp = cursor.lastrowid
 
             # DetalleEmpleado
@@ -398,20 +538,25 @@ def crear_datos_ejemplo(cnx, cursor):
 
         # 4) Departamentos
         departamentos_seed = [
-            ("Operaciones",   "Operativo",  "Coordina operaciones internas", ids_dir[1]),
-            ("TI",            "Soporte",    "Soporte y desarrollo sistemas", ids_dir[0]),
+            ("Operaciones", "Operativo", "Coordina operaciones internas", ids_dir[1]),
+            ("TI",          "Soporte",   "Soporte y desarrollo sistemas", ids_dir[0]),
         ]
         id_departamento_principal = None
         for (nom, tipo, desc, id_dir) in departamentos_seed:
-            cursor.execute("SELECT id_Departamento FROM Departamento WHERE NombreDepartamento=%s", (nom,))
+            cursor.execute(
+                "SELECT id_Departamento FROM Departamento WHERE NombreDepartamento=%s",
+                (nom,)
+            )
             dep = cursor.fetchone()
             if dep:
                 dep_id = dep[0]
             else:
                 cursor.execute("""
-                    INSERT INTO Departamento (NombreDepartamento, TipoDepartamento, DescripcionDepartamento, Direccion_idDireccion)
+                    INSERT INTO Departamento
+                        (NombreDepartamento, TipoDepartamento,
+                         DescripcionDepartamento, Direccion_idDireccion)
                     VALUES (%s, %s, %s, %s)
-                """, (nom, tipo, desc, id_dir))  # TipoDepartamento seteado correctamente
+                """, (nom, tipo, desc, id_dir))
                 dep_id = cursor.lastrowid
             if id_departamento_principal is None:
                 id_departamento_principal = dep_id
@@ -420,20 +565,25 @@ def crear_datos_ejemplo(cnx, cursor):
         cursor.execute("""
             SELECT id_EmpleadoDepartamento
             FROM EmpleadoDepartamento
-            WHERE UsuarioSistema_idUsuarioSistema=%s AND Departamento_idDepartamento=%s
+            WHERE UsuarioSistema_idUsuarioSistema=%s
+              AND Departamento_idDepartamento=%s
         """, (id_emp, id_departamento_principal))
         ed = cursor.fetchone()
         if ed:
             id_ed = ed[0]
         else:
             cursor.execute("""
-                INSERT INTO EmpleadoDepartamento (Departamento_idDepartamento, UsuarioSistema_idUsuarioSistema)
+                INSERT INTO EmpleadoDepartamento
+                    (Departamento_idDepartamento, UsuarioSistema_idUsuarioSistema)
                 VALUES (%s, %s)
             """, (id_departamento_principal, id_emp))
             id_ed = cursor.lastrowid
 
         # 6) Proyecto demo
-        cursor.execute("SELECT id_Proyecto FROM Proyecto WHERE NombreProyecto=%s", ("Onboarding",))
+        cursor.execute(
+            "SELECT id_Proyecto FROM Proyecto WHERE NombreProyecto=%s",
+            ("Onboarding",)
+        )
         pr = cursor.fetchone()
         if pr:
             id_proy = pr[0]
@@ -447,13 +597,15 @@ def crear_datos_ejemplo(cnx, cursor):
         # 7) EmpleadoProyecto
         cursor.execute("""
             SELECT id_DetalleProyecto FROM EmpleadoProyecto
-            WHERE EmpleadoDepartamento_idEmpleadoDepartamento=%s AND Proyecto_idProyecto=%s
+            WHERE EmpleadoDepartamento_idEmpleadoDepartamento=%s
+              AND Proyecto_idProyecto=%s
         """, (id_ed, id_proy))
         ep = cursor.fetchone()
         if not ep:
             cursor.execute("""
                 INSERT INTO EmpleadoProyecto
-                    (CantidadHorasEmpleadoProyecto, DescripcionTareaProyecto, EmpleadoDepartamento_idEmpleadoDepartamento, Proyecto_idProyecto)
+                    (CantidadHorasEmpleadoProyecto, DescripcionTareaProyecto,
+                     EmpleadoDepartamento_idEmpleadoDepartamento, Proyecto_idProyecto)
                 VALUES (%s, %s, %s, %s)
             """, (20, "Configuración inicial y documentación", id_ed, id_proy))
 
@@ -461,9 +613,8 @@ def crear_datos_ejemplo(cnx, cursor):
         print("Datos de ejemplo cargados correctamente.")
 
     except Exception as e:
-        try: cnx.rollback()
-        except: pass
+        try:
+            cnx.rollback()
+        except:
+            pass
         print(f"Error al crear los datos de ejemplo: {e}")
-
-
-

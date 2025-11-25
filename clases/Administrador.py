@@ -13,7 +13,7 @@ if not os.path.exists("./informes"):
 class Admin(UsuarioSistema):
 
     def __init__(self, Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol, id_UsuarioSistema=None):
-        super().__init__(Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol, id_UsuarioSistema)
+        super().__init__(id_UsuarioSistema, Nombre, Apellido, RUT, Email, Telefono, NombreUsuario, Contraseña, id_Direccion, id_Rol)
     
     
     # Creacion del Usuario: Admin/Empleado en sistema 
