@@ -17,11 +17,7 @@ class EconomiaService:
     # Usamos findic.cl
     BASE_URL = "https://findic.cl/api"
 
-    # Mapeo entre el "CodigoIndicador" de tu tabla y la clave del JSON de findic
-    #
-    # OJO: estos códigos deben existir en la tabla IndicadorEconomico.CodigoIndicador
-    # (los sembramos en crear_datos_ejemplo).
-
+    # Mapeo entre el "CodigoIndicador" 
     INDICADORES_API = {
         "UF_CLP":              "uf",
         "IVP":                 "ivp",
@@ -51,7 +47,7 @@ class EconomiaService:
         resultados = {}
 
         try:
-            # 1 llamada para traer TODO el resumen del día
+            # Trae TODO el resumen del día
             resp = requests.get(self.BASE_URL, timeout=10)
             resp.raise_for_status()
             data = resp.json()
@@ -85,7 +81,7 @@ class EconomiaService:
                     # Si por algo falla el parseo, usamos ahora
                     fecha_dt = datetime.now()
 
-                # Buscamos el id del indicador en tu tabla IndicadorEconomico
+                # Buscamos el id del indicador en la tabla IndicadorEconomico
                 self.cursor.execute(
                     """
                     SELECT id_IndicadorEconomico
@@ -134,7 +130,7 @@ class EconomiaService:
                 }
 
             except Exception as e:
-                # Si algo explota con un indicador, no mata a los demás
+                # Anticrasheo
                 print(f"[EconomiaService] Error con {codigo_indicador}: {e}")
 
         # Intentamos guardar todo
@@ -184,7 +180,7 @@ class EconomiaService:
         except Exception as e:
             raise RuntimeError(f"Error consultando {url}: {e}")
 
-        # 2) La mayoría de APIs tipo findic/mindicador devuelven una clave 'serie'
+        # 2) La mayoría de APIs devuelven una clave 'serie'
         serie_json = data.get("serie")
         if not serie_json:
             # Si no hay 'serie', intentamos ver si viene un solo valor (como en /api)
